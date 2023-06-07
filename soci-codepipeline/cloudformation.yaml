@@ -1,0 +1,477 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Build Container Images with a SOCI Index
+
+Parameters:
+  RepositoryName:
+    Description: Name of the Codecommit and ECR Repositories
+    Type: String
+    Default: socidemoapp
+  SociVersion:
+    Description: Version of the Soci Cli to use
+    Type: String
+    Default: 0.3.0
+
+Resources:
+  ######################
+  # Core AWS Resources #
+  ######################
+  CodeRepo:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: !Ref RepositoryName
+
+  DemoAppEcr:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref RepositoryName
+
+  SourceBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+
+  ####################################################
+  # Cloudwatch Event to Trigger CodePipeline on Push #
+  ####################################################
+  AmazonCloudWatchEventRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: cwe-pipeline-execution
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: codepipeline:StartPipelineExecution
+                Resource: !Sub 'arn:${AWS::Partition}:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}'
+
+  AmazonCloudWatchEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+          - aws.codecommit
+        detail-type:
+          - 'CodeCommit Repository State Change'
+        resources:
+          - !Sub 'arn:${AWS::Partition}:codecommit:${AWS::Region}:${AWS::AccountId}:${RepositoryName}'
+        detail:
+          event:
+            - referenceCreated
+            - referenceUpdated
+          referenceType:
+            - branch
+          referenceName:
+            - main
+      Targets:
+        - Arn: !Sub 'arn:${AWS::Partition}:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}'
+          RoleArn: !GetAtt AmazonCloudWatchEventRole.Arn
+          Id: codepipeline-Pipeline
+
+  ############################
+  # Pipeline IAM Permissions #
+  ############################
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+        Version: "2012-10-17"
+
+  PipelineRoleDefaultPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: PipelineRoleDefaultPolicy
+      Roles:
+        - Ref: PipelineRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action:
+              - s3:GetObject*
+              - s3:GetBucket*
+              - s3:List*
+              - s3:DeleteObject*
+              - s3:PutObject*
+              - s3:Abort*
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - SourceBucket
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - SourceBucket
+                        - Arn
+                    - /*
+          - Action:
+              - codebuild:StartBuild
+              - codebuild:BatchGetBuilds
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - ImageBuild
+                  - Arn
+              - Fn::GetAtt:
+                  - SociIndexImageBuild
+                  - Arn
+          - Action:
+              - codecommit:GetRepository
+              - codecommit:GetBranch
+              - codecommit:GetCommit
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - CodeRepo
+                  - Arn
+
+  ################################
+  # Build the Image in CodeBuild #
+  ################################
+  ImageBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+        Version: "2012-10-17"
+
+  ImageBuildRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ImageBuildRoleDefaultPolicy
+      Roles:
+        - Ref: ImageBuildRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+              - Fn::Join:
+                  - ""
+                  - - "arn:"
+                    - Ref: AWS::Partition
+                    - ":logs:"
+                    - Ref: AWS::Region
+                    - ":"
+                    - Ref: AWS::AccountId
+                    - :log-group:/aws/codebuild/
+                    - Ref: ImageBuild
+                    - :*
+          - Action:
+              - s3:GetObject*
+              - s3:GetBucket*
+              - s3:List*
+              - s3:PutObject*
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - SourceBucket
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - SourceBucket
+                        - Arn
+                    - /*
+          - Action:
+              - codecommit:GitPull
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - CodeRepo
+                  - Arn
+          - Action:
+              - ecr:GetAuthorizationToken
+            Effect: Allow
+            Resource:
+              - "*"
+          - Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:CompleteLayerUpload
+              - ecr:InitiateLayerUpload
+              - ecr:PutImage
+              - ecr:UploadLayerPart
+            Effect: Allow
+            Resource:
+              - !GetAtt DemoAppEcr.Arn
+
+  ImageBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join
+        - "-"
+        - - !Sub ${AWS::StackName}
+          - "ImageBuild"
+      Artifacts:
+        Type: CODEPIPELINE
+        EncryptionDisabled: false
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        PrivilegedMode: true
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: AWS_ACCOUNT_ID
+            Type: PLAINTEXT
+            Value: !Ref AWS::AccountId
+      ServiceRole: !Ref ImageBuildRole
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - echo Logging in to Amazon ECR...
+                - aws ecr get-login-password --region $AWS_DEFAULT_REGION |docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+            build:
+              commands:
+                - echo Building the Docker image...
+                - cd api/
+                - docker build --tag $IMAGE_URI:$IMAGE_TAG --file Dockerfile.v2 .
+            post_build:
+              commands:
+                - echo Pushing the Docker image...
+                - docker push $IMAGE_URI:$IMAGE_TAG
+
+  #######################
+  # Create a SOCI Index #
+  #######################
+  SociIndexBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+        Version: "2012-10-17"
+
+  SociIndexBuildRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SociIndexBuildRoleDefaultPolicy
+      Roles:
+        - Ref: SociIndexBuildRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+              - Fn::Join:
+                  - ""
+                  - - "arn:"
+                    - Ref: AWS::Partition
+                    - ":logs:"
+                    - Ref: AWS::Region
+                    - ":"
+                    - Ref: AWS::AccountId
+                    - :log-group:/aws/codebuild/
+                    - Ref: SociIndexImageBuild
+                    - :*
+          - Action:
+              - s3:GetObject*
+              - s3:GetBucket*
+              - s3:List*
+              - s3:PutObject*
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - SourceBucket
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - SourceBucket
+                        - Arn
+                    - /*
+          - Action:
+              - codecommit:GitPull
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - CodeRepo
+                  - Arn
+          - Action:
+              - ecr:GetAuthorizationToken
+            Effect: Allow
+            Resource:
+              - "*"
+          - Action:
+              - ecr:BatchGetImage
+              - ecr:BatchCheckLayerAvailability
+              - ecr:CompleteLayerUpload
+              - ecr:GetDownloadUrlForLayer
+              - ecr:InitiateLayerUpload
+              - ecr:PutImage
+              - ecr:UploadLayerPart
+            Effect: Allow
+            Resource:
+              - !GetAtt DemoAppEcr.Arn
+
+  SociIndexImageBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join
+        - "-"
+        - - !Sub ${AWS::StackName}
+          - "SociIndexBuild"
+      Artifacts:
+        Type: CODEPIPELINE
+        EncryptionDisabled: false
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        PrivilegedMode: true
+        Type: LINUX_CONTAINER
+      ServiceRole: !Ref SociIndexBuildRole
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: !Sub |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - echo Install containerd
+                - sudo yum install containerd -y
+                - echo Download the SOCI Binaries
+                - wget https://github.com/awslabs/soci-snapshotter/releases/download/v${SociVersion}/soci-snapshotter-${SociVersion}-linux-amd64.tar.gz
+                - tar xvzf soci-snapshotter-${SociVersion}-linux-amd64.tar.gz
+                - sudo mv soci /usr/local/bin/soci
+                - echo make filesytem for containerd
+                - mkdir /containerd
+                - mount -t tmpfs tempfs /containerd
+                - echo Start Containerd
+                - sudo containerd --root /containerd &
+                - sleep 3
+            build:
+              commands:
+                - echo Logging in to Amazon ECR...
+                - export PASSWORD=$(aws ecr get-login-password --region ${AWS::Region})
+                - echo Pulling Container Image from ECR
+                - sudo ctr image pull --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
+                - echo Generating SOCI Index
+                - sudo soci create $IMAGE_URI:$IMAGE_TAG
+                - echo Pushing the Soci Index to ECR...
+                - sudo soci push --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
+
+  # Code Pipeline
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    DependsOn:
+         - PipelineRoleDefaultPolicy
+    Properties:
+      ArtifactStore:
+        Type: S3
+        Location: !Ref "SourceBucket"
+      RoleArn:
+        Fn::GetAtt:
+          - PipelineRole
+          - Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitRepo
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeCommit
+                Version: "1"
+              Configuration:
+                RepositoryName: !GetAtt CodeRepo.Name
+                BranchName: "main"
+                PollForSourceChanges: false
+                OutputArtifactFormat: CODEBUILD_CLONE_REF
+              OutputArtifacts:
+                - Name: SourceArtifact
+        - Name: Build
+          Actions:
+            - Name: BuildContainerImage
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              Configuration:
+                ProjectName: !Ref ImageBuild
+                EnvironmentVariables: !Sub |
+                  [
+                    {
+                      "name": "AWS_ACCOUNT_ID",
+                      "value": "${AWS::AccountId}",
+                      "type": "PLAINTEXT"
+                    },
+                    {
+                      "name": "IMAGE_URI",
+                      "value": "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${DemoAppEcr}",
+                      "type": "PLAINTEXT"
+                    },
+                    {
+                      "name": "IMAGE_TAG",
+                      "value": "#{codepipeline.PipelineExecutionId}",
+                      "type": "PLAINTEXT"
+                    }
+                  ]
+              InputArtifacts:
+                - Name: SourceArtifact
+        - Name: Index
+          Actions:
+            - Name: BuildSociIndex
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              Configuration:
+                ProjectName: !Ref SociIndexImageBuild
+                EnvironmentVariables: !Sub |
+                  [
+                    {
+                      "name": "IMAGE_URI",
+                      "value": "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${DemoAppEcr}",
+                      "type": "PLAINTEXT"
+                    },
+                    {
+                      "name": "IMAGE_TAG",
+                      "value": "#{codepipeline.PipelineExecutionId}",
+                      "type": "PLAINTEXT"
+                    }
+                  ]
+              InputArtifacts:
+                - Name: SourceArtifact
+
+Outputs:
+  DemoAppEcr:
+    Description: ECR Repository to store the Demo App Image
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${DemoAppEcr}"
+  DemoAppEcrName:
+    Description: ECR Repository to store the Demo App Image
+    Value: !Ref DemoAppEcr
