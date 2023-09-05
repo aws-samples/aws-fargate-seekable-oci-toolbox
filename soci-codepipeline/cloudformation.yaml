@@ -9,7 +9,7 @@ Parameters:
   SociVersion:
     Description: Version of the Soci Cli to use
     Type: String
-    Default: 0.3.0
+    Default: 0.4.0
 
 Resources:
   ######################
@@ -363,8 +363,8 @@ Resources:
                 - echo Install containerd
                 - sudo yum install containerd -y
                 - echo Download the SOCI Binaries
-                - wget https://github.com/awslabs/soci-snapshotter/releases/download/v${SociVersion}/soci-snapshotter-${SociVersion}-linux-amd64.tar.gz
-                - tar xvzf soci-snapshotter-${SociVersion}-linux-amd64.tar.gz
+                - wget --quiet https://github.com/awslabs/soci-snapshotter/releases/download/v${SociVersion}/soci-snapshotter-v${SociVersion}-linux-amd64.tar.gz
+                - tar xvzf soci-snapshotter-v${SociVersion}-linux-amd64.tar.gz
                 - sudo mv soci /usr/local/bin/soci
                 - echo make filesytem for containerd
                 - mkdir /containerd
