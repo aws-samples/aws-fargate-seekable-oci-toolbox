@@ -105,12 +105,12 @@ snapshotters are being used within the environment with Log Insights Query.
 ```
 fields @timestamp, @message
 | sort @timestamp desc
-| stats count(*) by InstanceType,Kernel,TaskCpu,TaskMemory,InstanceMemory,InstanceCpu,InstanceHypervisor,Snapshotter
+| stats count(*) by Cluster,Family,Revision,Snapshotter
 | limit 20
 ```
 
 This query should produce a table like:
 
-| Cluster | Family | Revision | Snapshotter | count(*) |
-| --- | --- | --- | --- | --- |
-| arn:aws:ecs:us-east-1:11112222333444:cluster/default | amilazy | 1 | soci | 10 |
+| Cluster                                              | Family  | Revision | Snapshotter | count(*) |
+| ---------------------------------------------------- | ------- | -------- | ----------- | -------- |
+| arn:aws:ecs:us-east-1:11112222333444:cluster/default | amilazy | 1        | soci        | 10       |
