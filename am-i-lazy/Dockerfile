@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.5
 ## Build
-FROM golang:1.19-alpine AS build
+FROM public.ecr.aws/docker/library/golang:1.20-alpine AS build
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ COPY app/*.go ./
 RUN go build -o /amilazy
 
 ## Deploy
-FROM alpine:3.16
+FROM public.ecr.aws/docker/library/alpine:3.18
 
 WORKDIR /
 
