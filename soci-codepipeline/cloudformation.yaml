@@ -9,7 +9,7 @@ Parameters:
   SociVersion:
     Description: Version of the Soci Cli to use
     Type: String
-    Default: 0.4.0
+    Default: 0.4.1
 
 Resources:
   ######################
@@ -360,28 +360,20 @@ Resources:
           phases:
             pre_build:
               commands:
-                - echo Install containerd
-                - sudo yum install containerd -y
                 - echo Download the SOCI Binaries
-                - wget --quiet https://github.com/awslabs/soci-snapshotter/releases/download/v${SociVersion}/soci-snapshotter-v${SociVersion}-linux-amd64.tar.gz
-                - tar xvzf soci-snapshotter-v${SociVersion}-linux-amd64.tar.gz
+                - wget --quiet https://github.com/awslabs/soci-snapshotter/releases/download/v${SociVersion}/soci-snapshotter-${SociVersion}-linux-amd64.tar.gz
+                - tar xvzf soci-snapshotter-${SociVersion}-linux-amd64.tar.gz
                 - sudo mv soci /usr/local/bin/soci
-                - echo make filesytem for containerd
-                - mkdir /containerd
-                - mount -t tmpfs tempfs /containerd
-                - echo Start Containerd
-                - sudo containerd --root /containerd &
-                - sleep 3
             build:
               commands:
                 - echo Logging in to Amazon ECR...
                 - export PASSWORD=$(aws ecr get-login-password --region ${AWS::Region})
                 - echo Pulling Container Image from ECR
-                - sudo ctr image pull --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
+                - sudo ctr --address /var/run/docker/containerd/containerd.sock image pull --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
                 - echo Generating SOCI Index
-                - sudo soci create $IMAGE_URI:$IMAGE_TAG
+                - sudo soci --address /var/run/docker/containerd/containerd.sock create $IMAGE_URI:$IMAGE_TAG
                 - echo Pushing the Soci Index to ECR...
-                - sudo soci push --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
+                - sudo soci --address /var/run/docker/containerd/containerd.sock push --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
 
   # Code Pipeline
   Pipeline:
