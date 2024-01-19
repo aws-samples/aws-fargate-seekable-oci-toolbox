@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Build Container Images with a SOCI Index
+Description: Build a container image with a SOCI Index on CodeBuild
 
 Parameters:
   RepositoryName:
@@ -7,9 +7,9 @@ Parameters:
     Type: String
     Default: socidemoapp
   SociVersion:
-    Description: Version of the Soci Cli to use
+    Description: Version of the SOCI cli to use
     Type: String
-    Default: 0.4.0
+    Default: 0.4.1
 
 Resources:
   ######################
@@ -110,35 +110,21 @@ Resources:
               - s3:Abort*
             Effect: Allow
             Resource:
-              - Fn::GetAtt:
-                  - SourceBucket
-                  - Arn
-              - Fn::Join:
-                  - ""
-                  - - Fn::GetAtt:
-                        - SourceBucket
-                        - Arn
-                    - /*
+              - !GetAtt SourceBucket.Arn
+              - !Sub "${SourceBucket.Arn}/*"
           - Action:
               - codebuild:StartBuild
               - codebuild:BatchGetBuilds
             Effect: Allow
             Resource:
-              - Fn::GetAtt:
-                  - ImageBuild
-                  - Arn
-              - Fn::GetAtt:
-                  - SociIndexImageBuild
-                  - Arn
+              - !GetAtt ImageBuild.Arn
           - Action:
               - codecommit:GetRepository
               - codecommit:GetBranch
               - codecommit:GetCommit
             Effect: Allow
             Resource:
-              - Fn::GetAtt:
-                  - CodeRepo
-                  - Arn
+              - !GetAtt CodeRepo.Arn
 
   ################################
   # Build the Image in CodeBuild #
@@ -169,17 +155,7 @@ Resources:
               - logs:PutLogEvents
             Effect: Allow
             Resource:
-              - Fn::Join:
-                  - ""
-                  - - "arn:"
-                    - Ref: AWS::Partition
-                    - ":logs:"
-                    - Ref: AWS::Region
-                    - ":"
-                    - Ref: AWS::AccountId
-                    - :log-group:/aws/codebuild/
-                    - Ref: ImageBuild
-                    - :*
+              - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${ImageBuild}:*"
           - Action:
               - s3:GetObject*
               - s3:GetBucket*
@@ -187,28 +163,20 @@ Resources:
               - s3:PutObject*
             Effect: Allow
             Resource:
-              - Fn::GetAtt:
-                  - SourceBucket
-                  - Arn
-              - Fn::Join:
-                  - ""
-                  - - Fn::GetAtt:
-                        - SourceBucket
-                        - Arn
-                    - /*
+              - !GetAtt SourceBucket.Arn
+              - !Sub "${SourceBucket.Arn}/*"
           - Action:
               - codecommit:GitPull
             Effect: Allow
             Resource:
-              - Fn::GetAtt:
-                  - CodeRepo
-                  - Arn
+              - !GetAtt CodeRepo.Arn
           - Action:
               - ecr:GetAuthorizationToken
             Effect: Allow
             Resource:
               - "*"
           - Action:
+              - ecr:BatchGetImage
               - ecr:BatchCheckLayerAvailability
               - ecr:CompleteLayerUpload
               - ecr:InitiateLayerUpload
@@ -221,10 +189,7 @@ Resources:
   ImageBuild:
     Type: AWS::CodeBuild::Project
     Properties:
-      Name: !Join
-        - "-"
-        - - !Sub ${AWS::StackName}
-          - "ImageBuild"
+      Name: !Sub "${AWS::StackName}-ImageBuild"
       Artifacts:
         Type: CODEPIPELINE
         EncryptionDisabled: false
@@ -234,125 +199,10 @@ Resources:
         PrivilegedMode: true
         Type: LINUX_CONTAINER
         EnvironmentVariables:
-          - Name: AWS_ACCOUNT_ID
+          - Name: CONTAINERD_ADDRESS
             Type: PLAINTEXT
-            Value: !Ref AWS::AccountId
+            Value: "/var/run/docker/containerd/containerd.sock"
       ServiceRole: !Ref ImageBuildRole
-      Source:
-        Type: CODEPIPELINE
-        BuildSpec: |
-          version: 0.2
-          phases:
-            pre_build:
-              commands:
-                - echo Logging in to Amazon ECR...
-                - aws ecr get-login-password --region $AWS_DEFAULT_REGION |docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
-            build:
-              commands:
-                - echo Building the Docker image...
-                - cd api/
-                - docker build --tag $IMAGE_URI:$IMAGE_TAG --file Dockerfile.v2 .
-            post_build:
-              commands:
-                - echo Pushing the Docker image...
-                - docker push $IMAGE_URI:$IMAGE_TAG
-
-  #######################
-  # Create a SOCI Index #
-  #######################
-  SociIndexBuildRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Statement:
-          - Action: sts:AssumeRole
-            Effect: Allow
-            Principal:
-              Service: codebuild.amazonaws.com
-        Version: "2012-10-17"
-
-  SociIndexBuildRolePolicy:
-    Type: AWS::IAM::Policy
-    Properties:
-      PolicyName: SociIndexBuildRoleDefaultPolicy
-      Roles:
-        - Ref: SociIndexBuildRole
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Action:
-              - logs:CreateLogGroup
-              - logs:CreateLogStream
-              - logs:PutLogEvents
-            Effect: Allow
-            Resource:
-              - Fn::Join:
-                  - ""
-                  - - "arn:"
-                    - Ref: AWS::Partition
-                    - ":logs:"
-                    - Ref: AWS::Region
-                    - ":"
-                    - Ref: AWS::AccountId
-                    - :log-group:/aws/codebuild/
-                    - Ref: SociIndexImageBuild
-                    - :*
-          - Action:
-              - s3:GetObject*
-              - s3:GetBucket*
-              - s3:List*
-              - s3:PutObject*
-            Effect: Allow
-            Resource:
-              - Fn::GetAtt:
-                  - SourceBucket
-                  - Arn
-              - Fn::Join:
-                  - ""
-                  - - Fn::GetAtt:
-                        - SourceBucket
-                        - Arn
-                    - /*
-          - Action:
-              - codecommit:GitPull
-            Effect: Allow
-            Resource:
-              - Fn::GetAtt:
-                  - CodeRepo
-                  - Arn
-          - Action:
-              - ecr:GetAuthorizationToken
-            Effect: Allow
-            Resource:
-              - "*"
-          - Action:
-              - ecr:BatchGetImage
-              - ecr:BatchCheckLayerAvailability
-              - ecr:CompleteLayerUpload
-              - ecr:GetDownloadUrlForLayer
-              - ecr:InitiateLayerUpload
-              - ecr:PutImage
-              - ecr:UploadLayerPart
-            Effect: Allow
-            Resource:
-              - !GetAtt DemoAppEcr.Arn
-
-  SociIndexImageBuild:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Name: !Join
-        - "-"
-        - - !Sub ${AWS::StackName}
-          - "SociIndexBuild"
-      Artifacts:
-        Type: CODEPIPELINE
-        EncryptionDisabled: false
-      Environment:
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
-        PrivilegedMode: true
-        Type: LINUX_CONTAINER
-      ServiceRole: !Ref SociIndexBuildRole
       Source:
         Type: CODEPIPELINE
         BuildSpec: !Sub |
@@ -360,30 +210,30 @@ Resources:
           phases:
             pre_build:
               commands:
-                - echo Install containerd
-                - sudo yum install containerd -y
                 - echo Download the SOCI Binaries
-                - wget --quiet https://github.com/awslabs/soci-snapshotter/releases/download/v${SociVersion}/soci-snapshotter-v${SociVersion}-linux-amd64.tar.gz
-                - tar xvzf soci-snapshotter-v${SociVersion}-linux-amd64.tar.gz
-                - sudo mv soci /usr/local/bin/soci
-                - echo make filesytem for containerd
-                - mkdir /containerd
-                - mount -t tmpfs tempfs /containerd
-                - echo Start Containerd
-                - sudo containerd --root /containerd &
-                - sleep 3
-            build:
-              commands:
+                - wget --quiet https://github.com/awslabs/soci-snapshotter/releases/download/v${SociVersion}/soci-snapshotter-${SociVersion}-linux-amd64.tar.gz
+                - tar xvzf soci-snapshotter-${SociVersion}-linux-amd64.tar.gz soci
+                - mv soci /usr/local/bin/soci
                 - echo Logging in to Amazon ECR...
                 - export PASSWORD=$(aws ecr get-login-password --region ${AWS::Region})
-                - echo Pulling Container Image from ECR
-                - sudo ctr image pull --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
-                - echo Generating SOCI Index
-                - sudo soci create $IMAGE_URI:$IMAGE_TAG
-                - echo Pushing the Soci Index to ECR...
-                - sudo soci push --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
+            build:
+              commands:
+                - cd api/
+                - echo Building the container image
+                - docker buildx create --driver=docker-container --use
+                - docker buildx build --quiet --tag $IMAGE_URI:$IMAGE_TAG --file Dockerfile.v2 --output type=oci,dest=./image.tar .
+                - echo Import the container image to containerd
+                - ctr image import ./image.tar
+                - echo Generating SOCI index
+                - soci create $IMAGE_URI:$IMAGE_TAG
+                - echo Pushing the container image
+                - ctr image push --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
+                - echo Push the SOCI index to ECR
+                - soci push --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
 
-  # Code Pipeline
+  #######################
+  # Define CodePipeline #
+  #######################
   Pipeline:
     Type: AWS::CodePipeline::Pipeline
     DependsOn:
@@ -422,36 +272,6 @@ Resources:
                 Version: "1"
               Configuration:
                 ProjectName: !Ref ImageBuild
-                EnvironmentVariables: !Sub |
-                  [
-                    {
-                      "name": "AWS_ACCOUNT_ID",
-                      "value": "${AWS::AccountId}",
-                      "type": "PLAINTEXT"
-                    },
-                    {
-                      "name": "IMAGE_URI",
-                      "value": "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${DemoAppEcr}",
-                      "type": "PLAINTEXT"
-                    },
-                    {
-                      "name": "IMAGE_TAG",
-                      "value": "#{codepipeline.PipelineExecutionId}",
-                      "type": "PLAINTEXT"
-                    }
-                  ]
-              InputArtifacts:
-                - Name: SourceArtifact
-        - Name: Index
-          Actions:
-            - Name: BuildSociIndex
-              ActionTypeId:
-                Category: Build
-                Owner: AWS
-                Provider: CodeBuild
-                Version: "1"
-              Configuration:
-                ProjectName: !Ref SociIndexImageBuild
                 EnvironmentVariables: !Sub |
                   [
                     {
