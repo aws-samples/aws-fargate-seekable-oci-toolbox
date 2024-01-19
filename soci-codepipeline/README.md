@@ -13,24 +13,82 @@ CodeBuild](https://aws.amazon.com/codebuild/), but the hope is that this
 blueprint and the stages of the pipeline can be transferred to other CI/CD
 Pipelines.
 
-### Pipeline Architecture
+## Deploying the Sample Pipeline.
 
-This CodePipeline example builds a container image and indexes it in a single
-CodeBuild instance.
+You can deploy the AWS CodePipeline in your AWS Account with the following steps:
 
-#### Walkthrough of the buildspec file
+1. Deploy the CloudFormation Template.
+
+    ```bash
+    aws cloudformation \
+        create-stack \
+        --stack-name soci-pipeline \
+        --template-body file://cloudformation.yaml \
+        --capabilities CAPABILITY_IAM
+    ```
+
+    This cloudformation template will create the following resources:
+
+    * AWS CodeCommit repository to store the sample application.
+    * Amazon ECR repository to store the Container Image and SOCI
+      Index.
+    * Amazon EventBridge rule to trigger the pipeline on a commit
+      being pushed to AWS CodeCommit.
+    * AWS CodePipeline with the AWS CodeBuild discussed above.
+
+    Log into the AWS Console, to verify the cloudformation template has been
+    deployed correctly, and the various resources in the AWS Code Suite has been
+    deployed successfully.
+
+2. Next we push the Sample Application into the CodeCommit Repository.
+
+   If you have not configured you're local git client to authenticate and push to
+   AWS CodeCommit, see the [AWS CodeCommit
+   documentation](https://docs.aws.amazon.com/codecommit/latest/userguide/setting-up-ssh-unixes.html).
+
+    ```bash
+    git clone https://github.com/ollypom/mysfits.git
+    git remote add codecommit ssh://git-codecommit.eu-west-1.amazonaws.com/v1/repos/socidemoapp
+    git push codecommit master
+    ```
+
+    You can monitor the status of the CodePipeline in the AWS Console. Ensuring
+    it has been triggered and the 2 CodeBuilds stages execute successfully.
+
+3. In the AWS Console or using the AWS CLI, check to see that the container
+   image along with a SOCI Index have been pushed to Amazon ECR.
+
+   ```bash
+   aws ecr list-images --repository socidemoapp
+   {
+       "imageIds": [
+           {
+               "imageDigest": "sha256:91bf19a70b1806ae97476fd19a17eea7977c068a0c1e361037cba457c2810d4a"
+           },
+           {
+               "imageDigest": "sha256:a4239937f44e35d790dd8396fc3a215f59d758541d8370459eefc6a286650474",
+               "imageTag": "1d2ca213-2121-447f-9a00-9633bb8941be"
+           },
+           {
+               "imageDigest": "sha256:18d7b8d6b11eeae4e4265380fedf51720f3f47fb209cbeefdc395f6d18908693",
+               "imageTag": "sha256-a4239937f44e35d790dd8396fc3a215f59d758541d8370459eefc6a286650474"
+           }
+       ]
+   }
+   ```
+
+## Walkthrough of the buildspec file
 
 The [buildspec file](https://docs.aws.amazon.com/codebuild/latest/userguide/build-spec-ref.html) file for CodeBuild can be be found in the cloudformation template,
 however in this `README.md` I have added some commentary.
 
 **Pre Build**
 
-In the PreBuild step of the buildspec file we download the latest version of the
-`soci` cli and ensure it is in the right place in the users path. We also log in
-to Amazon ECR and export the token to a variable for future use, this is because
-containerd's `ctr` does not respect a Docker credential file
-(`~/.docker/config.json`) and instead needs credentials passed in with `--user`
-flag.
+In the Pre Build stage we download the latest version of the `soci` cli and
+ensure it is in the right place in the users path. We also log in to Amazon ECR
+and export the token to a variable for future use, this is because containerd's
+`ctr` does not respect a Docker credential file (`~/.docker/config.json`) and
+instead needs credentials passed in with `--user` flag.
 
 ```bash
 - echo Download the SOCI Binaries
@@ -97,67 +155,3 @@ Steps defined in the buildspec file:
     - echo Push the SOCI index to ECR
     - soci push --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
     ```
-
-## Deploying the Sample Pipeline.
-
-You can deploy the AWS CodePipeline in your AWS Account with the following steps:
-
-1. Deploy the CloudFormation Template.
-
-    ```bash
-    aws cloudformation \
-        create-stack \
-        --stack-name soci-pipeline \
-        --template-body file://cloudformation.yaml \
-        --capabilities CAPABILITY_IAM
-    ```
-
-    This cloudformation template will create the following resources:
-
-    * AWS CodeCommit repository to store the sample application.
-    * Amazon ECR repository to store the Container Image and SOCI
-      Index.
-    * Amazon EventBridge rule to trigger the pipeline on a commit
-      being pushed to AWS CodeCommit.
-    * AWS CodePipeline with the AWS CodeBuild discussed above.
-
-    Log into the AWS Console, to verify the cloudformation template has been
-    deployed correctly, and the various resources in the AWS Code Suite has been
-    deployed successfully.
-
-2. Next we push the Sample Application into the CodeCommit Repository.
-
-   If you have not configured you're local git client to authenticate and push to
-   AWS CodeCommit, see the [AWS CodeCommit
-   documentation](https://docs.aws.amazon.com/codecommit/latest/userguide/setting-up-ssh-unixes.html).
-
-    ```bash
-    git clone https://github.com/ollypom/mysfits.git
-    git remote add codecommit ssh://git-codecommit.eu-west-1.amazonaws.com/v1/repos/socidemoapp
-    git push codecommit master
-    ```
-
-    You can monitor the status of the CodePipeline in the AWS Console. Ensuring
-    it has been triggered and the 2 CodeBuilds stages execute successfully.
-
-3. In the AWS Console or using the AWS CLI, check to see that the container
-   image along with a SOCI Index have been pushed to Amazon ECR.
-
-   ```bash
-   aws ecr list-images --repository socidemoapp
-   {
-       "imageIds": [
-           {
-               "imageDigest": "sha256:91bf19a70b1806ae97476fd19a17eea7977c068a0c1e361037cba457c2810d4a"
-           },
-           {
-               "imageDigest": "sha256:a4239937f44e35d790dd8396fc3a215f59d758541d8370459eefc6a286650474",
-               "imageTag": "1d2ca213-2121-447f-9a00-9633bb8941be"
-           },
-           {
-               "imageDigest": "sha256:18d7b8d6b11eeae4e4265380fedf51720f3f47fb209cbeefdc395f6d18908693",
-               "imageTag": "sha256-a4239937f44e35d790dd8396fc3a215f59d758541d8370459eefc6a286650474"
-           }
-       ]
-   }
-   ```
