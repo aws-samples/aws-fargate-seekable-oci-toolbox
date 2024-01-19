@@ -218,8 +218,8 @@ Resources:
                 - export PASSWORD=$(aws ecr get-login-password --region ${AWS::Region})
             build:
               commands:
-                - echo Building the container image
                 - cd api/
+                - echo Building the container image
                 - docker buildx create --driver=docker-container --use
                 - docker buildx build --quiet --tag $IMAGE_URI:$IMAGE_TAG --file Dockerfile.v2 --output type=oci,dest=./image.tar .
                 - echo Import the container image to containerd

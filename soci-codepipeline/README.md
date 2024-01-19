@@ -1,7 +1,7 @@
 # Generating SOCI Indexes within a CI/CD Pipeline
 
-Before you can lazy load a container image with the SOCI Snapshotter it needs to
-be indexed. To do so, you can use the `soci`
+Before a container image can be lazy loaded it needs to be indexed. To do so,
+you can use the `soci`
 [cli](https://github.com/awslabs/soci-snapshotter/tree/main/cmd/soci), and run
 the `soci create` command against a local container image.
 
@@ -13,25 +13,90 @@ CodeBuild](https://aws.amazon.com/codebuild/), but the hope is that this
 blueprint and the stages of the pipeline can be transferred to other CI/CD
 Pipelines.
 
-# Pipeline Architecture
+### Pipeline Architecture
 
-This pipeline has the following architecture:
+This CodePipeline example builds a container image and indexes it in a single
+CodeBuild instance.
 
- ![Architecture](architecture.png "Pipeline Architecture")
+#### Walkthrough of the buildspec file
 
-1. Stage 1 of the pipeline builds the container image. This is a common pattern
-   with AWS CodeBuild. Within the CodeBuild environment the execution
-   environment is privileged, so you can perform a container image build with
-   `docker build`.
+The [buildspec file](https://docs.aws.amazon.com/codebuild/latest/userguide/build-spec-ref.html) file for CodeBuild can be be found in the cloudformation template,
+however in this `README.md` I have added some commentary.
 
-2. Stage 2 of the pipeline creates the SOCI Index. Within this CodeBuild
-   environment we run our own instance of containerd. This is because the `soci`
-   cli can only index container images stored within the containerd image store,
-   not the Docker Engine image store. Therefore the Docker Engine running in the
-   AWS CodeBuild execution environment can not be used. Once the containerd
-   daemon is running, the rest of the execution involves downloading the
-   container image with `ctr image pull` and generating the SOCI Index with
-   `soci create`.
+**Pre Build**
+
+In the PreBuild step of the buildspec file we download the latest version of the
+`soci` cli and ensure it is in the right place in the users path. We also log in
+to Amazon ECR and export the token to a variable for future use, this is because
+containerd's `ctr` does not respect a Docker credential file
+(`~/.docker/config.json`) and instead needs credentials passed in with `--user`
+flag.
+
+```bash
+- echo Download the SOCI Binaries
+- wget --quiet https://github.com/awslabs/soci-snapshotter/releases/download/v${SociVersion}/soci-snapshotter-${SociVersion}-linux-amd64.tar.gz
+- tar xvzf soci-snapshotter-${SociVersion}-linux-amd64.tar.gz soci
+- mv soci /usr/local/bin/soci
+- echo Logging in to Amazon ECR...
+- export PASSWORD=$(aws ecr get-login-password --region ${AWS::Region})
+```
+
+**Build**
+
+To create a SOCI index for the container image, the container image needs to be
+stored in containerd's image store, not the Docker Engine image store. Therefore
+in our build stage we create the container image, export it as a tarball and then
+load it into containerd.
+
+Containerd is already running in our CodeBuild instance because it sits
+underneath the Docker Engine included in the CodeBuild container image. To tell
+`ctr` and `soci` to use the existing containerd, we have set an environment
+variable for our instance `CONTAINERD_ADDRESS="/var/run/docker/containerd/containerd.sock"`
+
+Steps defined in the buildspec file:
+
+1. Leveraging Moby's [buildkit](https://github.com/moby/buildkit) (exposed by
+   `docker buildx`) we build the container image. There are a number of
+   [exporters](https://docs.docker.com/build/exporters/) for buildkit, but given
+   that the end result we want is a tarball, I decided to use a
+   `docker-container` builder because it can export directly to an `.tar`. I'm
+   also leveraging a `type=oci` so that my container image conforms to the OCI
+   v1 spec, but this is not mandatory, and `type=docker` (the Docker v2.2 spec)
+   would also work for SOCI.
+
+   Alternatively you could use the default `docker` builder provided out of the
+   box by the Docker Engine, and then run a `docker save -o image.tar
+   $IMAGE_URI:$IMAGE_TAG` to get to the image out of the Docker Engine image store.
+
+    ```bash
+    - echo Building the container image
+    - docker buildx create --driver=docker-container --use
+    - docker buildx build --quiet --tag $IMAGE_URI:$IMAGE_TAG --file Dockerfile.v2 --output type=oci,dest=./image.tar .
+    ```
+
+2. Import the container image into containerd's image store.
+
+    ```bash
+    - echo Import the container image to containerd
+    - ctr image import ./image.tar
+    ```
+
+3. Index the container image using the `soci` CLI.
+
+    ```bash
+    - echo Generating SOCI index
+    - soci create $IMAGE_URI:$IMAGE_TAG
+    ```
+
+4. Push both the container image and the SOCI index up to ECR using the user
+   credentials we retrieved in the pre build.
+
+    ```bash
+    - echo Pushing the container image
+    - ctr image push --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
+    - echo Push the SOCI index to ECR
+    - soci push --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
+    ```
 
 ## Deploying the Sample Pipeline.
 
@@ -54,8 +119,7 @@ You can deploy the AWS CodePipeline in your AWS Account with the following steps
       Index.
     * Amazon EventBridge rule to trigger the pipeline on a commit
       being pushed to AWS CodeCommit.
-    * AWS CodePipeline with the 2 AWS CodeBuild steps shown in the
-      [pipeline architecture](#pipeline-architecture)
+    * AWS CodePipeline with the AWS CodeBuild discussed above.
 
     Log into the AWS Console, to verify the cloudformation template has been
     deployed correctly, and the various resources in the AWS Code Suite has been
