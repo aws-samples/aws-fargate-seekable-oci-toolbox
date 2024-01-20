@@ -77,10 +77,10 @@ You can deploy the AWS CodePipeline in your AWS Account with the following steps
    }
    ```
 
-## Walkthrough of the buildspec file
+### Walkthrough of the buildspec file
 
 The [buildspec file](https://docs.aws.amazon.com/codebuild/latest/userguide/build-spec-ref.html) file for CodeBuild can be be found in the cloudformation template,
-however in this `README.md` I have added some commentary.
+however in this `README.md` we have added some commentary.
 
 **Pre Build**
 
@@ -116,7 +116,7 @@ Steps defined in the buildspec file:
 1. Leveraging Moby's [buildkit](https://github.com/moby/buildkit) (exposed by
    `docker buildx`) we build the container image. There are a number of
    [exporters](https://docs.docker.com/build/exporters/) for buildkit, but given
-   that the end result we want is a tarball, I decided to use a
+   that the end result we want is a tarball, we decided to use a
    `docker-container` builder because it can export directly to an `.tar`. I'm
    also leveraging a `type=oci` so that my container image conforms to the OCI
    v1 spec, but this is not mandatory, and `type=docker` (the Docker v2.2 spec)
@@ -155,3 +155,69 @@ Steps defined in the buildspec file:
     - echo Push the SOCI index to ECR
     - soci push --user AWS:$PASSWORD $IMAGE_URI:$IMAGE_TAG
     ```
+
+## Building a Multi Architecture Pipeline
+
+When building container images it is common to build for both x86 and arm64
+architectures at the same time. While you could build arm64 container images on
+x86 hosts through emulation, it is a lot more performant to natively build arm64
+images on arm64 hosts. Therefore we have included an example CodePipeline that
+will concurrently build two container images, one x86 image, one arm64 image in
+separate CodeBuild jobs on the native architectures.
+
+After both container images have been built, we then need to create a [Docker
+manifest list](https://distribution.github.io/distribution/#manifest-list) (or
+an [OCI image
+index](https://github.com/opencontainers/image-spec/blob/main/image-index.md)).
+This additional metadata file is used as a signpost by the container runtime
+when deciding which container image to use. I.e. a container runtime on a x86
+host, will read the manifest list to discover the image digest for the x86
+image. Once its retrieved the x86 container image digest, it will go and
+download that image from the repository.
+
+You can create a Docker manifest list in a CodeBuild container based builder
+with the `docker manifest`
+[docs](https://docs.docker.com/engine/reference/commandline/manifest/) or
+`docker buildx imagetools`
+([docs](https://docs.docker.com/engine/reference/commandline/buildx_imagetools/)).
+There is a great example
+[here](https://github.com/aws-samples/aws-multiarch-container-build-pipeline/blob/b1060d397751b1c9113a2c1c86c2d5565faa5f85/lib/build-manifest.ts#L70)
+using `docker manifest`.
+
+However in our example we have leveraged the new [CodeBuild Lambda based builder](https://aws.amazon.com/about-aws/whats-new/2023/11/aws-codebuild-lambda-compute/),
+to build the manifest list using the `manifest-tool` cli
+([source](https://github.com/estesp/manifest-tool)).
+
+To deploy the multi architecture pipeline:
+
+```bash
+aws cloudformation \
+    create-stack \
+    --stack-name soci-multi-arch-pipeline \
+    --template-body file://multiarch-cloudformation.yaml \
+    --capabilities CAPABILITY_IAM
+```
+
+### Buildx work around
+
+There is a difference in the [CodeBuild Amazon Linux
+images](https://github.com/aws/aws-codebuild-docker-images) for x86 and arm64.
+The arm64 image [does not include docker
+buildx](https://github.com/aws/aws-codebuild-docker-images/issues/640),
+therefore the [method](#walkthrough-of-the-buildspec-file) used in our x86
+buildspec file can not be reused.
+
+Instead we build the container image using `docker build`, and then export the
+container image out of the Docker Engine image store with `docker save`, ready
+to be imported into the containerd image store. Importing into the containerd
+image store and generating the SOCI index is identical to the x86 buildspec
+file.
+
+Snippet from the arm64 buildspec file
+
+```yaml
+- echo Building the container image
+- docker build --quiet --tag $IMAGE_URI:$IMAGE_TAG --file Dockerfile.v2 .
+- echo Export the container image
+- docker save --output ./image.tar $IMAGE_URI:$IMAGE_TAG
+```
