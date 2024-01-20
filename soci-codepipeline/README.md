@@ -179,7 +179,7 @@ You can create a Docker manifest list in a CodeBuild container based builder
 with the `docker manifest`
 [docs](https://docs.docker.com/engine/reference/commandline/manifest/) or
 `docker buildx imagetools`
-([[docs](https://docs.docker.com/engine/reference/commandline/buildx_imagetools/)]).
+([docs](https://docs.docker.com/engine/reference/commandline/buildx_imagetools/)).
 There is a great example
 [here](https://github.com/aws-samples/aws-multiarch-container-build-pipeline/blob/b1060d397751b1c9113a2c1c86c2d5565faa5f85/lib/build-manifest.ts#L70)
 using `docker manifest`.
