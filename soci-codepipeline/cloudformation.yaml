@@ -9,7 +9,7 @@ Parameters:
   SociVersion:
     Description: Version of the SOCI cli to use
     Type: String
-    Default: 0.4.1
+    Default: 0.5.0
 
 Resources:
   ######################
@@ -212,7 +212,7 @@ Resources:
               commands:
                 - echo Download the SOCI Binaries
                 - wget --quiet https://github.com/awslabs/soci-snapshotter/releases/download/v${SociVersion}/soci-snapshotter-${SociVersion}-linux-amd64.tar.gz
-                - tar xvzf soci-snapshotter-${SociVersion}-linux-amd64.tar.gz soci
+                - tar xvzf soci-snapshotter-${SociVersion}-linux-amd64.tar.gz ./soci
                 - mv soci /usr/local/bin/soci
                 - echo Logging in to Amazon ECR...
                 - export PASSWORD=$(aws ecr get-login-password --region ${AWS::Region})

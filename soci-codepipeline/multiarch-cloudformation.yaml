@@ -9,7 +9,7 @@ Parameters:
   SociVersion:
     Description: Version of the SOCI cli to use
     Type: String
-    Default: 0.4.1
+    Default: 0.5.0
 
 Resources:
   ######################
@@ -216,7 +216,7 @@ Resources:
               commands:
                 - echo Download the SOCI Binaries
                 - wget --quiet https://github.com/awslabs/soci-snapshotter/releases/download/v${SociVersion}/soci-snapshotter-${SociVersion}-linux-amd64.tar.gz
-                - tar xvzf soci-snapshotter-${SociVersion}-linux-amd64.tar.gz soci
+                - tar xvzf soci-snapshotter-${SociVersion}-linux-amd64.tar.gz ./soci
                 - mv soci /usr/local/bin/soci
                 - echo Logging in to Amazon ECR...
                 - export PASSWORD=$(aws ecr get-login-password --region ${AWS::Region})
@@ -262,7 +262,7 @@ Resources:
               commands:
                 - echo Download the SOCI Binaries
                 - wget --quiet https://github.com/awslabs/soci-snapshotter/releases/download/v${SociVersion}/soci-snapshotter-${SociVersion}-linux-arm64.tar.gz
-                - tar xvzf soci-snapshotter-${SociVersion}-linux-arm64.tar.gz soci
+                - tar xvzf soci-snapshotter-${SociVersion}-linux-arm64.tar.gz ./soci
                 - mv soci /usr/local/bin/soci
                 - echo Logging in to Amazon ECR...
                 - export PASSWORD=$(aws ecr get-login-password --region ${AWS::Region})
@@ -270,9 +270,8 @@ Resources:
               commands:
                 - cd api/
                 - echo Building the container image
-                - docker build --quiet --tag $IMAGE_URI:$IMAGE_TAG --file Dockerfile.v2 .
-                - echo Export the container image
-                - docker save --output ./image.tar $IMAGE_URI:$IMAGE_TAG
+                - docker buildx create --driver=docker-container --use
+                - docker buildx build --quiet --tag $IMAGE_URI:$IMAGE_TAG --file Dockerfile.v2 --output type=docker,dest=./image.tar .
                 - echo Import the container image to containerd
                 - ctr image import ./image.tar
                 - echo Generating SOCI index
