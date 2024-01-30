@@ -184,7 +184,8 @@ There is a great example
 [here](https://github.com/aws-samples/aws-multiarch-container-build-pipeline/blob/b1060d397751b1c9113a2c1c86c2d5565faa5f85/lib/build-manifest.ts#L70)
 using `docker manifest`.
 
-However in our example we have leveraged the new [CodeBuild Lambda based builder](https://aws.amazon.com/about-aws/whats-new/2023/11/aws-codebuild-lambda-compute/),
+However in our example we have leveraged the new [CodeBuild Lambda based
+builder](https://aws.amazon.com/about-aws/whats-new/2023/11/aws-codebuild-lambda-compute/),
 to build the manifest list using the `manifest-tool` cli
 ([source](https://github.com/estesp/manifest-tool)).
 
@@ -196,28 +197,4 @@ aws cloudformation \
     --stack-name soci-multi-arch-pipeline \
     --template-body file://multiarch-cloudformation.yaml \
     --capabilities CAPABILITY_IAM
-```
-
-### Buildx work around
-
-There is a difference in the [CodeBuild Amazon Linux
-images](https://github.com/aws/aws-codebuild-docker-images) for x86 and arm64.
-The arm64 image [does not include docker
-buildx](https://github.com/aws/aws-codebuild-docker-images/issues/640),
-therefore the [method](#walkthrough-of-the-buildspec-file) used in our x86
-buildspec file can not be reused.
-
-Instead we build the container image using `docker build`, and then export the
-container image out of the Docker Engine image store with `docker save`, ready
-to be imported into the containerd image store. Importing into the containerd
-image store and generating the SOCI index is identical to the x86 buildspec
-file.
-
-Snippet from the arm64 buildspec file
-
-```yaml
-- echo Building the container image
-- docker build --quiet --tag $IMAGE_URI:$IMAGE_TAG --file Dockerfile.v2 .
-- echo Export the container image
-- docker save --output ./image.tar $IMAGE_URI:$IMAGE_TAG
 ```
