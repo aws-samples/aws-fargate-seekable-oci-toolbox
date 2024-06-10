@@ -18,10 +18,14 @@ The quick sample application will provide a log output look:
     "Containers": [
         {
             "Name": "amilazy",
+            "Image": "111222333444.dkr.ecr.us-east-1.amazonaws.com/amilazy:v0.2",
+            "ImageId": "sha256:e8377cb653de43ab399046b7e9be38890c288269b450992bb52deefc327d6a16",
             "Snapshotter": "overlayfs"
         },
         {
             "Name": "nginx",
+            "Image": "111222333444.dkr.ecr.us-east-1.amazonaws.com/nginx-demo:latest",
+            "ImageId": "sha256:e8377cb653de43ab399046b7e9be38890c288269b450992bb52deefc327d6a16",
             "Snapshotter": "soci"
         }
     ]
@@ -38,7 +42,7 @@ Before we can run this container within our Tasks, we need to build the
 container and push it to ECR.
 
 ```bash
-AWS_ACCOUNT_ID=11112222333444
+AWS_ACCOUNT_ID=111222333444
 AWS_REGION=us-east-1
 
 docker buildx \
