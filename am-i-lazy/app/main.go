@@ -23,6 +23,8 @@ type taskConfig struct {
 
 type containers struct {
 	Name        string `json:"Name"`
+	Image       string `json:"Image"`
+	ImageId     string `json:"ImageId"`
 	Snapshotter string `json:"Snapshotter"`
 }
 
@@ -63,6 +65,8 @@ func main() {
 	for _, v := range t.Containers {
 		newContainer := containers{
 			Name:        v.Name,
+			Image:       v.Image,
+			ImageId:     v.ImageID,
 			Snapshotter: v.Snapshotter,
 		}
 
