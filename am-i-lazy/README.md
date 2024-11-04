@@ -45,11 +45,10 @@ container and push it to ECR.
 AWS_ACCOUNT_ID=111222333444
 AWS_REGION=us-east-1
 
-docker buildx \
-    build \
-    --platform linux/arm64,linux/amd64 \
-    --push \
-    --tag $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/amilazy:v0.1 \
+finch build \
+    --file=Dockerfile \
+    --platform=linux/arm64,linux/amd64 \
+    --output=type=image,oci-mediatypes=true,compression=zstd,force-compression=true,name=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/amilazy:v0.3,push=true \
     .
 ```
 

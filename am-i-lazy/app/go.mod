@@ -1,6 +1,6 @@
 module github.com/amilazy
 
-go 1.21
+go 1.23
 
 require github.com/aws/amazon-ecs-agent/ecs-agent v0.0.0-20240528202446-27ca59a0a052
 
