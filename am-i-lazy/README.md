@@ -106,14 +106,24 @@ Insights](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/AnalyzingLogD
 A sample query would be:
 
 ```
-fields @timestamp, @message
-| sort @timestamp desc
-| stats count(*) by Cluster,Family,Revision,Containers.1.Snapshotter as Snapshotter
+filter @logStream like /^amilazy/
+| fields
+    Family,
+    Revision,
+    Containers.0.Name as ContainerOneName,
+    Containers.0.Snapshotter as ContainerOneSnapshotter,
+    Containers.1.Name as ContainerTwoName,
+    Containers.1.Snapshotter as ContainerTwoSnapshotter
+| stats count(*) as Count by Family, Revision, ContainerOneName, ContainerOneSnapshotter, ContainerTwoName, ContainerTwoSnapshotter
+| sort Count desc
 | limit 20
 ```
 
 This should produce a table like:
 
-| Cluster                                              | Family    | Revision | Snapshotter | count(*) |
-| ---------------------------------------------------- | --------- | -------- | ----------- | -------- |
-| arn:aws:ecs:us-east-1:11112222333444:cluster/default | nginxdemo | 1        | soci        | 10       |
+| Family | Revision | ContainerOneName | ContainerOneSnapshotter | ContainerTwoName | ContainerTwoSnapshotter | Count |
+| --- | --- | --- | --- | --- | --- | --- |
+| nginx | 2 | nginxdemo | soci | amilazy | overlayfs | 8 |
+| nginx | 1 | nginxdemo | soci | amilazy | overlayfs | 8 |
+| nginx | 3 | nginxdemo | soci | amilazy | overlayfs | 8 |
+| nginx | 4 | nginxdemo | soci | amilazy | overlayfs | 5 |
