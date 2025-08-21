@@ -7,7 +7,7 @@ require github.com/aws/amazon-ecs-agent/ecs-agent v0.0.0-20250108005330-fb1fb409
 require (
 	github.com/aws/aws-sdk-go v1.55.6 // indirect
 	github.com/cihub/seelog v0.0.0-20170130134532-f561c5e57575 // indirect
-	github.com/docker/docker v27.5.0+incompatible // indirect
+	github.com/docker/docker v28.0.0+incompatible // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
